@@ -11,10 +11,10 @@ class Prompts(TypedDict):
 llm = ChatOpenAI(model="gpt-4o-mini")
 
 
-async def solve_problem(prompts: Prompts, inputs: dict) -> str:
+async def solve_problem(prompts: Prompts, inputs: dict) -> dict:
     result_message = await llm.ainvoke(prompts["classifier"].invoke(inputs))
     language = result_message.content
     response = await llm.ainvoke(
         prompts["math_solver"].invoke({"language": language, **inputs})
     )
-    return response.content
+    return {"answer": response.content}

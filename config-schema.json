@@ -78,6 +78,13 @@
     "initial_prompt": {
       "$ref": "#/$defs/PromptConfig"
     },
+    "initial_prompts": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/PromptConfig"
+      },
+      "title": "Initial Prompts"
+    },
     "description": {
       "anyOf": [
         {
@@ -155,8 +162,11 @@
   "required": [
     "name",
     "dataset",
-    "initial_prompt",
     "evaluators"
+  ],
+  "anyOf": [
+    { "required": ["initial_prompt"] },
+    { "required": ["initial_prompts"] }
   ],
   "title": "Config",
   "type": "object",
