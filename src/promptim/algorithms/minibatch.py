@@ -36,8 +36,10 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
         experiment_name: str = "Prompt Optimization",
         baseline_scores: Optional[dict] = None,
         baseline_experiment_results: Optional[list] = None,
-    ) -> tuple[pm_types.PromptWrapper, float]:
+    ) -> tuple[dict[str, pm_types.PromptWrapper], float]:
         """Implementation of the original optimize_prompt flow."""
+
+        # Turn all prompt input types into a dictionary.
         if isinstance(initial_population, pm_types.PromptWrapper):
             initial_population = {"default": initial_population}
         elif isinstance(initial_population, list):
@@ -47,7 +49,10 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
                 k: v[0] if isinstance(v, list) else v
                 for k, v in initial_population.items()
             }
-        history = [initial_population]
+        
+        # History will be List[List[Dict[str, PromptWrapper]]].
+        history = [[initial_population]]
+
         best_score = float("-inf")
         best_prompts = initial_population
         with Progress() as progress:
@@ -135,7 +140,7 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
                             results = None
                     if results is None:
                         results = await trainer._evaluate_prompt(
-                            history[-1],
+                            history[-1][-1], # The most recent prompt dictionary.
                             task,
                             batch,
                             debug=self.config.debug,
@@ -173,7 +178,14 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
                             task=task,
                             trainer=trainer,
                         )
-                        history[-1].extend(improved)
+
+                        for prompt_key, prompt in improved[0].items():
+                            if prompt_key in history[-1][-1]: # This should always be true.
+                                new_attempt = {k: v for k, v in history[-1][-1].items()}
+                                new_attempt[prompt_key] = prompt
+                                history[-1].append(new_attempt)
+                            else: # If it's not, we messed up.
+                                raise Exception(f"Prompt {prompt_key} not in current prompts {history[-1][-1]}")
 
                         if commit_prompts:
                             for prompt in improved:
@@ -187,7 +199,7 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
                 # Evaluate on dev set
                 progress.update(main_task, description="[cyan]Evaluating on dev set...")
                 dev_results = await trainer._evaluate_prompt(
-                    history[-1],
+                    history[-1][-1],
                     task,
                     dev_examples,
                     debug=self.config.debug,
@@ -204,7 +216,8 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
 
                 if dev_score is not None and dev_score > best_score:
                     best_score = dev_score
-                    best_prompts = history[-1][-1]
+                    # Store the best prompt for each prompt key in the dictionary
+                    best_prompts = {k: v for k, v in history[-1][-1].items()}
                     progress.console.print(
                         f"New best score: {best_score:.4f} (surpassed previous best)"
                     )
@@ -235,6 +248,6 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
                         split="dev",
                         prompt=best_prompts,
                     )
-                history.append([best_prompts])
+            history.append(best_prompts)
 
-            return best_prompts, best_score
+        return best_prompts, best_score

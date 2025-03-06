@@ -151,7 +151,7 @@ class PromptTrainer:
         annotation_queue: Optional[str] = None,
         commit_prompts: bool = False,
         experiment_name: Optional[str] = None,
-    ) -> tuple[pm_types.PromptWrapper, float]:
+    ) -> tuple[dict[str, pm_types.PromptWrapper], float]:
         """
         Delegates the macro-level training flow to the specified algorithm.
         The trainer still handles data loading, concurrency, experiment creation, etc.
@@ -617,7 +617,7 @@ class PromptTrainer:
     @ls.traceable(process_outputs=lambda _: {})
     async def _evaluate_prompt(
         self,
-        prompt_config: dict[str, pm_types.PromptWrapper | list[pm_types.PromptWrapper]],
+        prompt_configs: list[dict[str, pm_types.PromptWrapper | list[pm_types.PromptWrapper]]],
         task: pm_types.Task,
         data: str | list,
         debug: bool = False,
@@ -627,14 +627,16 @@ class PromptTrainer:
         upload_results: bool = True,
     ) -> list[ExperimentResultRow]:
         """Evaluates a prompt against a task's dataset and evaluators."""
-        prompts = {
-            k: (v[0] if isinstance(v, list) else v).load(self.client)
-            for k, v in prompt_config.items()
-        }
-        metadata = {
-            f"{k}_prompt": ((v[0] if isinstance(v, list) else v).identifier if (v[0] if isinstance(v, list) else v).identifier else "local")
-            for k, v in prompt_config.items()
-        }
+
+        if type(prompt_configs) == dict:
+            prompt_configs = [prompt_configs]
+
+        prompts, metadata = {}, {}
+        for prompt_config in prompt_configs:
+            for k, v in prompt_config.items():
+                prompts[k] = (v[0] if isinstance(v, list) else v).load(self.client)
+                metadata[f"{k}_prompt"] = ((v[0] if isinstance(v, list) else v).identifier if (v[0] if isinstance(v, list) else v).identifier else "local")
+          
         rt = ls.get_current_run_tree()
 
         async def predict(inputs: dict):

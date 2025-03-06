@@ -359,7 +359,11 @@ class Task(TaskLike):
     def system_safe(self) -> SystemType:
         if self.system:
             return self.system
-
+        
+        # If somehow we've got a Task with multiple prompts but no system prompt, raise an error.
+        if self.initial_prompts is not None:
+            raise ValueError("Multi-prompt tasks must provide a system configuration.")
+        
         prompt = PromptWrapper.from_config(self.initial_prompt)
         return self.get_prompt_system(prompt)
 

@@ -122,36 +122,38 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
             formatted.append("---")
         return "\n".join(formatted)
 
+
     @ls.traceable
-    async def improve_prompt(
+    async def _improve_single_prompt(
         self,
+        prompt: pm_types.PromptWrapper,
         history: Sequence[Sequence[pm_types.PromptWrapper]],
         results: List[ExperimentResultRow],
         task: pm_types.Task,
-        **kwargs,
-    ) -> list[pm_types.PromptWrapper]:
-        current_prompt = history[-1][-1]
+        prompt_key: str = "default",
+    ) -> pm_types.PromptWrapper:
+        """Optimize a single prompt."""
         other_attempts = list(
             {
-                html.escape(p.get_prompt_str()): (
-                    p,
-                    (p.extra.get("hypothesis") or "") if p.extra else "",
+                html.escape(p_wrapper.get_prompt_str()): (
+                    p_wrapper,
+                    (p_wrapper.extra.get("hypothesis") or "") if p_wrapper.extra else "",
                 )
-                for ps in history
-                for p in ps
-                if p.get_prompt_str() != current_prompt.get_prompt_str()
+                for epoch in history  # epoch is List[Dict[str, PromptWrapper]]
+                for attempt in epoch  # attempt is Dict[str, PromptWrapper]
+                for key, p_wrapper in attempt.items()  # Extract each PromptWrapper
+                if key == prompt_key and p_wrapper.get_prompt_str() != prompt.get_prompt_str()
             }.values()
         )[-5:]
 
         annotated_results = self._format_results(results)
-        async with ls.trace("Optimize") as rt:
-            print(f"Optimizing with url {rt.get_url()}", flush=True)
-            formatted = current_prompt.get_prompt_str_in_context()
-            hypo = (
-                current_prompt.extra.get("hypothesis") if current_prompt.extra else None
-            )
+        async with ls.trace(f"Optimize_{prompt_key}") as rt:
+            print(f"Optimizing {prompt_key} with url {rt.get_url()}", flush=True)
+            formatted = prompt.get_prompt_str_in_context()
+            hypo = prompt.extra.get("hypothesis") if prompt.extra else None
             if hypo:
                 hypo = "Hypothesis for this prompt: " + hypo
+                
             inputs = self.format(
                 current_prompt=formatted,
                 current_hypo=hypo or "",
@@ -169,21 +171,49 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
                     else "N/A"
                 ),
             )
-            prompt_output = await self.react_agent(inputs, current_prompt)
+            
+            prompt_output = await self.react_agent(inputs, prompt)
             rt.add_outputs({"output": prompt_output})
+            
         candidate = pm_types.PromptWrapper.from_prior(
-            current_prompt,
+            prompt,
             prompt_output.improved_prompt,
             extra_info={"hypothesis": prompt_output.hypothesis},
         )
-
+        
         pm_utils.print_rich_diff(
-            current_prompt.get_prompt_str_in_context(),
+            prompt.get_prompt_str_in_context(),
             candidate.get_prompt_str_in_context(),
-            "Updated Prompt",
+            f"Updated {prompt_key} Prompt",
         )
+        
+        return candidate
 
-        return [candidate]
+    @ls.traceable
+    async def improve_prompt(
+        self,
+        history: Sequence[Sequence[dict[str, pm_types.PromptWrapper]]],
+        results: List[ExperimentResultRow],
+        task: pm_types.Task,
+        **kwargs,
+    ) -> list[pm_types.PromptWrapper]:
+        """
+        Improve one or more prompts. The target prompt will always be the prompt dictionary most recently appended to
+        the history argument.
+        """
+        current_prompts = history[-1][-1]  # Always a dictionary
+
+        improved_prompts = {}
+        for prompt_key, prompt in current_prompts.items():
+            improved_prompts[prompt_key] = await self._improve_single_prompt(
+                prompt=prompt,
+                history=history,
+                results=results,
+                task=task,
+                prompt_key=prompt_key,
+            )
+        
+        return [improved_prompts]
 
     @ls.traceable
     async def react_agent(
