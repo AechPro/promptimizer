@@ -177,14 +177,18 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
                             results=results,
                             task=task,
                             trainer=trainer,
+                            best_prompts=best_prompts,
                         )
 
                         for prompt_key, prompt in improved[0].items():
-                            if prompt_key in history[-1][-1]: # This should always be true.
+                            # This condition should always be true.
+                            if prompt_key in history[-1][-1]:
                                 new_attempt = {k: v for k, v in history[-1][-1].items()}
                                 new_attempt[prompt_key] = prompt
                                 history[-1].append(new_attempt)
-                            else: # If it's not, we messed up.
+                                
+                            # If it's not, we messed up.
+                            else: 
                                 raise Exception(f"Prompt {prompt_key} not in current prompts {history[-1][-1]}")
 
                         if commit_prompts:

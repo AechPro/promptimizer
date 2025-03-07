@@ -359,9 +359,20 @@ def train(
     results = sorted(results, key=lambda x: x[-1], reverse=True)
     print("Results:")
     for folder, _, _, prompt, score in results:
-        print(f"- Score: {score:.4f} | {folder}| Prompt:\n{prompt.get_prompt_str()}")
+        if isinstance(prompt, dict):
+            print(f"- Score: {score:.4f} | {folder}")
+            for prompt_key, prompt_value in prompt.items():
+                print(f"  [{prompt_key}]:\n{prompt_value.get_prompt_str()}")
+        else:
+            print(f"- Score: {score:.4f} | {folder}| Prompt:\n{prompt.get_prompt_str()}")
     if len(results) > 1:
-        print(f"\nBest prompt:\n{results[0][-2].get_prompt_str()}\n\n{results[0][0]}")
+        best_prompt = results[0][-2]
+        if isinstance(best_prompt, dict):
+            print(f"\nBest prompts in {results[0][0]}:")
+            for prompt_key, prompt_value in best_prompt.items():
+                print(f"\n[{prompt_key}]:\n{prompt_value.get_prompt_str()}")
+        else:
+            print(f"\nBest prompt:\n{best_prompt.get_prompt_str()}\n\n{results[0][0]}")
 
 
 @cli.group()
@@ -496,7 +507,9 @@ def _try_get_prompt(client: Client, prompt: str | None, yes: bool):
                         )
                     except Exception as e:
                         click.echo(f"Error cloning prompt: {e}")
-                        click.echo(f"Continuing with the original prompt {identifier}.")
+                        click.echo(
+                            f"Continuing with the original prompt {identifier}."
+                        )
                         click.echo(
                             "You will have to clone this manually in the UI if you want to push optimized commits."
                         )

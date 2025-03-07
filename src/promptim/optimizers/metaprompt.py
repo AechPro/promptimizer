@@ -60,7 +60,8 @@ Focus on targeted improvements rather than re-hashing what the prompt already ha
 
 Use prompting strategies as appropriate for the task. For logic and math, consider encourage more chain-of-thought reasoning, 
 or include reasoning trajectories to induce better performance. For creative tasks, consider adding style guidelines.
-Or consider including synthetic exemplars. Take all the time you need, but DO NOT REPEAT HYPOTHESES FROM PREVIOUS ATTEMPTS. Update your priors by thinking why they're disproven, then try something new."""
+Or consider including synthetic exemplars. Take all the time you need, but DO NOT REPEAT HYPOTHESES FROM PREVIOUS ATTEMPTS. Update your priors by thinking why they're disproven, then try something new.
+"""
 
 
 @dataclass(kw_only=True)
@@ -99,6 +100,7 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
         super().__init__(model=model)
         self.meta_prompt = meta_prompt or DEFAULT_METAPROMPT
         self.max_reasoning_steps = max_reasoning_steps
+        self.known_prompt_descriptions = {}
 
     @ls.traceable(run_type="prompt", name="meta_prompt")
     def format(self, **kwargs):
@@ -122,6 +124,13 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
             formatted.append("---")
         return "\n".join(formatted)
 
+    async def _get_prompt_description(self, prompt: pm_types.PromptWrapper) -> str:
+        """Generate a description for a prompt using LLM."""
+        prompt_content = prompt.get_prompt_str()
+        response = await self.model.ainvoke(
+            f"Describe the purpose of this prompt in 10-15 words: {prompt_content}"
+        )
+        return response.content.strip()
 
     @ls.traceable
     async def _improve_single_prompt(
@@ -132,6 +141,7 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
         task: pm_types.Task,
         prompt_key: str = "default",
     ) -> pm_types.PromptWrapper:
+
         """Optimize a single prompt."""
         other_attempts = list(
             {
@@ -195,16 +205,40 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
         history: Sequence[Sequence[dict[str, pm_types.PromptWrapper]]],
         results: List[ExperimentResultRow],
         task: pm_types.Task,
+        best_prompts: dict[str, pm_types.PromptWrapper] = None,
         **kwargs,
     ) -> list[pm_types.PromptWrapper]:
         """
         Improve one or more prompts. The target prompt will always be the prompt dictionary most recently appended to
         the history argument.
         """
-        current_prompts = history[-1][-1]  # Always a dictionary
+
+        # Always start from the best group of prompts if available, otherwise modify the most recent.
+        current_prompts = best_prompts if best_prompts is not None else history[-1][-1]
+
+        # Update prompt descriptions cache for all prompts
+        for key, prompt in current_prompts.items():
+            if key not in self.known_prompt_descriptions:
+                self.known_prompt_descriptions[key] = await self._get_prompt_description(prompt)
+        
+        # Original metaprompt to restore later
+        is_multi_prompt = len(current_prompts) > 1
+        if is_multi_prompt:
+            original_meta_prompt = self.meta_prompt
 
         improved_prompts = {}
         for prompt_key, prompt in current_prompts.items():
+            # Add some context to the meta-prompt only if we have multiple prompts
+            if is_multi_prompt:
+                system_context = "\n\nYou are optimizing part of a multi-prompt system:\n"
+                for key, p in current_prompts.items():
+                    description = self.known_prompt_descriptions.get(key, "Unknown purpose")
+                    if key == prompt_key:
+                        system_context += f"- [{key}]: *Currently optimizing this prompt* - {description}\n"
+                    else:
+                        system_context += f"- [{key}]: {description}\n"
+                self.meta_prompt = original_meta_prompt + system_context
+            
             improved_prompts[prompt_key] = await self._improve_single_prompt(
                 prompt=prompt,
                 history=history,
@@ -212,7 +246,10 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
                 task=task,
                 prompt_key=prompt_key,
             )
-        
+            
+            if is_multi_prompt:
+                self.meta_prompt = original_meta_prompt
+
         return [improved_prompts]
 
     @ls.traceable

@@ -24,6 +24,9 @@ grader = create_extractor(
 
 async def correctness_evaluator(run: Run, example: Example) -> dict:
     """Evaluator to check if the predicted answer matches the reference."""
+    # problem_id = str(hash(example.inputs.get('problem', '')))[:6]
+    # print(f"[{problem_id}] RUN INPUTS: {run.inputs}")
+    
     reference_outputs = example.outputs
     try:
         predicted = run.outputs["answer"]
@@ -61,6 +64,10 @@ async def correctness_evaluator(run: Run, example: Example) -> dict:
             f"Predicted answer: {predicted}"
         )
         result = response["responses"][0]
+        # print("EVALUATOR RESULTS",result)
+        # print()
+        # print("-------------------------------------------------------------------------------------------------------------------")
+        # print()
         if result.error_type == "syntax":
             return {
                 "key": "correctness",

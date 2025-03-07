@@ -231,11 +231,15 @@ class PromptTrainer:
             self.algorithm.config.debug,
             system_config,
         )
-        pm_utils.print_rich_diff(
-            next(iter(initial_population.values()))[0].get_prompt_str_in_context(),
-            best_prompt.get_prompt_str_in_context(),
-            title="Final Prompt Updates",
-        )
+        # Update to handle dictionary of prompts
+        for prompt_key, prompt_value in best_prompt.items():
+            initial_prompt = next(iter(initial_population.get(prompt_key, []))) if prompt_key in initial_population else None
+            if initial_prompt:
+                pm_utils.print_rich_diff(
+                    initial_prompt.get_prompt_str_in_context(),
+                    prompt_value.get_prompt_str_in_context(),
+                    title=f"Final Prompt Updates ({prompt_key})",
+                )
         await self.wait_for_all()
         test_score = statistics.mean(final_test_scores.values())
         return best_prompt, test_score
