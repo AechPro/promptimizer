@@ -156,6 +156,8 @@ class PromptTrainer:
         Delegates the macro-level training flow to the specified algorithm.
         The trainer still handles data loading, concurrency, experiment creation, etc.
         """
+
+        # Enforce dictionary structure for population.
         if initial_population is None:
             initial_population = (
                 {"default": [task.initial_prompt]}
@@ -231,7 +233,8 @@ class PromptTrainer:
             self.algorithm.config.debug,
             system_config,
         )
-        # Update to handle dictionary of prompts
+
+        # Loop over each of the best prompts and compare them to the initial prompts at the same keys.
         for prompt_key, prompt_value in best_prompt.items():
             initial_prompt = next(iter(initial_population.get(prompt_key, []))) if prompt_key in initial_population else None
             if initial_prompt:
@@ -240,6 +243,7 @@ class PromptTrainer:
                     prompt_value.get_prompt_str_in_context(),
                     title=f"Final Prompt Updates ({prompt_key})",
                 )
+                
         await self.wait_for_all()
         test_score = statistics.mean(final_test_scores.values())
         return best_prompt, test_score

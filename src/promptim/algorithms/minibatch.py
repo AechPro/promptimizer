@@ -218,16 +218,22 @@ class MinibatchAlgorithm(BaseAlgorithm[AlgorithmConfig]):
                     description=f'[yellow]Epoch {epoch+1} (Dev: {f"{dev_score:.4f}" if dev_score is not None else "-"}, Train: {f"{avg_score:.4f}" if avg_score is not None else "-"})',
                 )
 
-                if dev_score is not None and dev_score > best_score:
+                # Importantly, we will update the best_score and best_prompts even if the current score is equal to the best score. 
+                # This means that if we have a tie we'll always use the most recent successful prompts.
+                if dev_score is not None and dev_score >= best_score:
                     best_score = dev_score
+
                     # Store the best prompt for each prompt key in the dictionary
                     best_prompts = {k: v for k, v in history[-1][-1].items()}
-                    progress.console.print(
-                        f"New best score: {best_score:.4f} (surpassed previous best)"
-                    )
-                    progress.console.print("Average of:")
-                    for metric, score in dev_scores.items():
-                        progress.console.print(f"  {metric}: {score:.4f}")
+
+                    # Only print milestones if we reach them.
+                    if dev_score > best_score:
+                        progress.console.print(
+                            f"New best score: {best_score:.4f} (surpassed previous best)"
+                        )
+                        progress.console.print("Average of:")
+                        for metric, score in dev_scores.items():
+                            progress.console.print(f"  {metric}: {score:.4f}")
                 else:
                     progress.console.print(
                         f"Score {dev_score:.4f} did not surpass best score {best_score:.4f}"

@@ -141,8 +141,9 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
         task: pm_types.Task,
         prompt_key: str = "default",
     ) -> pm_types.PromptWrapper:
-
         """Optimize a single prompt."""
+        
+        # List the most recent 5 prior modifications of this prompt.
         other_attempts = list(
             {
                 html.escape(p_wrapper.get_prompt_str()): (
@@ -151,8 +152,8 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
                 )
                 for epoch in history  # epoch is List[Dict[str, PromptWrapper]]
                 for attempt in epoch  # attempt is Dict[str, PromptWrapper]
-                for key, p_wrapper in attempt.items()  # Extract each PromptWrapper
-                if key == prompt_key and p_wrapper.get_prompt_str() != prompt.get_prompt_str()
+                for key, p_wrapper in attempt.items()  # Get each PromptWrapper
+                if key == prompt_key and p_wrapper.get_prompt_str() != prompt.get_prompt_str() # Only include matching keys from the history. Exclude current prompt.
             }.values()
         )[-5:]
 
@@ -209,8 +210,9 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
         **kwargs,
     ) -> list[pm_types.PromptWrapper]:
         """
-        Improve one or more prompts. The target prompt will always be the prompt dictionary most recently appended to
-        the history argument.
+        Improve one or more prompts. The target to be improved will either be the current best-performing prompts if available, or the most recent prompts otherwise.
+        
+        In the multi-prompt case, one improvement will be proposed for every prompt in the group.
         """
 
         # Always start from the best group of prompts if available, otherwise modify the most recent.
@@ -221,14 +223,16 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
             if key not in self.known_prompt_descriptions:
                 self.known_prompt_descriptions[key] = await self._get_prompt_description(prompt)
         
-        # Original metaprompt to restore later
+        # If we're optimizing multiple prompts, we're going to inject context about each prompt into the meta-prompt.
         is_multi_prompt = len(current_prompts) > 1
+
+        # Save the original meta-prompt for later.
         if is_multi_prompt:
             original_meta_prompt = self.meta_prompt
 
         improved_prompts = {}
         for prompt_key, prompt in current_prompts.items():
-            # Add some context to the meta-prompt only if we have multiple prompts
+            # Add additional context about each prompt in the multi-prompt setting.
             if is_multi_prompt:
                 system_context = "\n\nYou are optimizing part of a multi-prompt system:\n"
                 for key, p in current_prompts.items():
@@ -239,6 +243,7 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
                         system_context += f"- [{key}]: {description}\n"
                 self.meta_prompt = original_meta_prompt + system_context
             
+            # Improve the current prompt.
             improved_prompts[prompt_key] = await self._improve_single_prompt(
                 prompt=prompt,
                 history=history,
@@ -247,6 +252,7 @@ class MetaPromptOptimizer(optimizers.BaseOptimizer):
                 prompt_key=prompt_key,
             )
             
+            # Restore the original meta-prompt after each iteration through the loop because we will change the context in the meta-prompt for each individual prompt we're optimizing.
             if is_multi_prompt:
                 self.meta_prompt = original_meta_prompt
 
